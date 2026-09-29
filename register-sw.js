@@ -5,8 +5,8 @@ window.__sushidaProxyReady = (async () => {
     throw new Error('このブラウザはService Workerに対応していません');
   }
 
-  await navigator.serviceWorker.register('/sw.js', {
-    scope: '/',
+  await navigator.serviceWorker.register('/pop/sw.js', {
+    scope: '/pop/',
     updateViaCache: 'none'
   });
   await navigator.serviceWorker.ready;

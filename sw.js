@@ -1,7 +1,13 @@
 'use strict';
 
-const VERSION = 'sushida-proxy-sw-v2';
-const BYPASS = new Set(['/sw.js', '/register-sw.js', '/runtime-shim.js', '/__health']);
+const VERSION = 'sushida-proxy-sw-v3-pop';
+const BASE_PATH = '/pop';
+const BYPASS = new Set([
+  BASE_PATH + '/sw.js',
+  BASE_PATH + '/register-sw.js',
+  BASE_PATH + '/runtime-shim.js',
+  BASE_PATH + '/__health'
+]);
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => {
@@ -50,7 +56,8 @@ function reconstructHeaders(transportResponse) {
 
 async function proxyRequest(request) {
   const url = new URL(request.url);
-  const transportUrl = '/_transport' + url.pathname + url.search;
+  const upstreamPath = url.pathname.slice(BASE_PATH.length) || '/';
+  const transportUrl = BASE_PATH + '/_transport' + upstreamPath + url.search;
 
   const headers = new Headers(request.headers);
   headers.delete('host');
@@ -87,11 +94,11 @@ async function proxyRequest(request) {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin || !url.pathname.startsWith(BASE_PATH + '/')) return;
 
   // ドキュメントは必ずserver.jsを通し、起動パッチの注入を維持する。
   if (event.request.mode === 'navigate' || event.request.destination === 'document') return;
-  if (url.pathname.startsWith('/_transport/') || BYPASS.has(url.pathname)) return;
+  if (url.pathname.startsWith(BASE_PATH + '/_transport/') || BYPASS.has(url.pathname)) return;
 
   event.respondWith(
     proxyRequest(event.request).catch(error => {

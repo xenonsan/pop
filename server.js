@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const TARGET_HOST = 'sushida.net';
 const TARGET_ORIGIN = `https://${TARGET_HOST}`;
 const ROOT = __dirname;
+const BASE_PATH = '/pop';
 
 app.disable('x-powered-by');
 app.set('trust proxy', true);
@@ -21,24 +22,24 @@ const agent = new https.Agent({
   timeout: 180000
 });
 
-app.get('/__health', (_req, res) => {
+app.get(BASE_PATH + '/__health', (_req, res) => {
   res.status(200).type('text/plain').send('OK');
 });
 
-app.get('/sw.js', (_req, res) => {
-  res.setHeader('Service-Worker-Allowed', '/');
+app.get(BASE_PATH + '/sw.js', (_req, res) => {
+  res.setHeader('Service-Worker-Allowed', BASE_PATH + '/');
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'sw.js')).pipe(res);
 });
 
-app.get('/runtime-shim.js', (_req, res) => {
+app.get(BASE_PATH + '/runtime-shim.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'runtime-shim.js')).pipe(res);
 });
 
-app.get('/register-sw.js', (_req, res) => {
+app.get(BASE_PATH + '/register-sw.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'register-sw.js')).pipe(res);
@@ -82,8 +83,8 @@ function encodeHeaderMetadata(headers) {
 }
 
 // sushida.net固定の転送API。任意ホストには接続できない。
-app.all('/_transport/*', (req, res) => {
-  const upstreamPath = req.originalUrl.slice('/_transport'.length) || '/';
+app.all(BASE_PATH + '/_transport/*', (req, res) => {
+  const upstreamPath = req.originalUrl.slice((BASE_PATH + '/_transport').length) || '/';
 
   if (!upstreamPath.startsWith('/') || upstreamPath.includes('://')) {
     res.status(400).type('text/plain').send('Invalid transport path');
@@ -138,7 +139,7 @@ function fetchHtml(req, res) {
     hostname: TARGET_HOST,
     port: 443,
     method: 'GET',
-    path: req.originalUrl,
+    path: req.originalUrl.slice(BASE_PATH.length) || '/',
     headers: makeUpstreamHeaders(req),
     agent,
     timeout: 120000
@@ -148,10 +149,10 @@ function fetchHtml(req, res) {
     upstreamRes.on('end', () => {
       let html = Buffer.concat(chunks).toString('utf8');
 
-      if (req.path === '/play.html') {
+      if (req.path === BASE_PATH + '/play.html') {
         // 初回はSW登録後に再読込。制御済みの場合だけUnityを開始する。
         html = html.replace(/<body\s+onload=["']game\(\)["']>/i, '<body>');
-        html = html.replace('</head>', '<script src="/runtime-shim.js"></script>\n<script src="/register-sw.js"></script>\n</head>');
+        html = html.replace('</head>', '<script src="/pop/runtime-shim.js"></script>\n<script src="/pop/register-sw.js"></script>\n</head>');
         html = html.replace('</body>', `
 <script>
 window.__sushidaProxyReady.then(function () {
@@ -159,7 +160,7 @@ window.__sushidaProxyReady.then(function () {
     window.__installSushidaUnityRuntimePatch();
     window.gameInstance = UnityLoader.instantiate(
       'gameContainer',
-      '/files/v1_3/Web.json',
+      '/pop/files/v1_3/Web.json',
       { onProgress: UnityProgress }
     );
     var canvas = document.querySelector('#gameContainer canvas');
@@ -189,15 +190,21 @@ window.__sushidaProxyReady.then(function () {
   upstreamReq.end();
 }
 
-app.get(['/', '/play.html'], fetchHtml);
+app.get('/', (_req, res) => res.redirect(302, BASE_PATH + '/'));
+app.get([BASE_PATH, BASE_PATH + '/', BASE_PATH + '/play.html'], fetchHtml);
 
 // SWがまだ制御していない初回ページの補助。通常はSWが先に傍受する。
 app.use((req, res, next) => {
-  if (req.path.startsWith('/_transport/') || req.path === '/sw.js' || req.path === '/register-sw.js' || req.path === '/runtime-shim.js') {
+  if (req.path.startsWith(BASE_PATH + '/_transport/') || req.path === BASE_PATH + '/sw.js' || req.path === BASE_PATH + '/register-sw.js' || req.path === BASE_PATH + '/runtime-shim.js') {
     next();
     return;
   }
-  res.redirect(307, '/_transport' + req.originalUrl);
+  if (!req.path.startsWith(BASE_PATH + '/')) {
+    res.status(404).type('text/plain').send('Not found');
+    return;
+  }
+  const upstreamPath = req.originalUrl.slice(BASE_PATH.length) || '/';
+  res.redirect(307, BASE_PATH + '/_transport' + upstreamPath);
 });
 
 const server = app.listen(PORT, () => {
