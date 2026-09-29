@@ -7,10 +7,10 @@ const fs = require('fs');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const TARGET_HOST = 'sushida.net';
+const TARGET_HOST = 'keyx0.net';
+const TARGET_BASE_PATH = '/pop';
 const TARGET_ORIGIN = `https://${TARGET_HOST}`;
 const ROOT = __dirname;
-const BASE_PATH = '/pop';
 
 app.disable('x-powered-by');
 app.set('trust proxy', true);
@@ -22,24 +22,24 @@ const agent = new https.Agent({
   timeout: 180000
 });
 
-app.get(BASE_PATH + '/__health', (_req, res) => {
+app.get('/__health', (_req, res) => {
   res.status(200).type('text/plain').send('OK');
 });
 
-app.get(BASE_PATH + '/sw.js', (_req, res) => {
-  res.setHeader('Service-Worker-Allowed', BASE_PATH + '/');
+app.get('/sw.js', (_req, res) => {
+  res.setHeader('Service-Worker-Allowed', '/');
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'sw.js')).pipe(res);
 });
 
-app.get(BASE_PATH + '/runtime-shim.js', (_req, res) => {
+app.get('/runtime-shim.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'runtime-shim.js')).pipe(res);
 });
 
-app.get(BASE_PATH + '/register-sw.js', (_req, res) => {
+app.get('/register-sw.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript; charset=utf-8');
   fs.createReadStream(path.join(ROOT, 'register-sw.js')).pipe(res);
@@ -58,7 +58,7 @@ function makeUpstreamHeaders(req) {
 
   headers.host = TARGET_HOST;
   headers.origin = TARGET_ORIGIN;
-  headers.referer = TARGET_ORIGIN + '/play.html';
+  headers.referer = TARGET_ORIGIN + TARGET_BASE_PATH + '/play.html';
 
   // Node側ではHTTP圧縮を要求しない。Unityの.unityweb自体は加工しない。
   headers['accept-encoding'] = 'identity';
@@ -82,9 +82,9 @@ function encodeHeaderMetadata(headers) {
   return Buffer.from(JSON.stringify(safe), 'utf8').toString('base64url');
 }
 
-// sushida.net固定の転送API。任意ホストには接続できない。
-app.all(BASE_PATH + '/_transport/*', (req, res) => {
-  const upstreamPath = req.originalUrl.slice((BASE_PATH + '/_transport').length) || '/';
+// keyx0.net/pop 固定の転送API。任意ホストには接続できない。
+app.all('/_transport/*', (req, res) => {
+  const upstreamPath = req.originalUrl.slice('/_transport'.length) || '/';
 
   if (!upstreamPath.startsWith('/') || upstreamPath.includes('://')) {
     res.status(400).type('text/plain').send('Invalid transport path');
@@ -96,7 +96,7 @@ app.all(BASE_PATH + '/_transport/*', (req, res) => {
     hostname: TARGET_HOST,
     port: 443,
     method: req.method,
-    path: upstreamPath,
+    path: TARGET_BASE_PATH + upstreamPath,
     headers: makeUpstreamHeaders(req),
     agent,
     timeout: 180000
@@ -139,7 +139,7 @@ function fetchHtml(req, res) {
     hostname: TARGET_HOST,
     port: 443,
     method: 'GET',
-    path: req.originalUrl.slice(BASE_PATH.length) || '/',
+    path: TARGET_BASE_PATH + req.originalUrl,
     headers: makeUpstreamHeaders(req),
     agent,
     timeout: 120000
@@ -149,10 +149,10 @@ function fetchHtml(req, res) {
     upstreamRes.on('end', () => {
       let html = Buffer.concat(chunks).toString('utf8');
 
-      if (req.path === BASE_PATH + '/play.html') {
+      if (req.path === '/play.html') {
         // 初回はSW登録後に再読込。制御済みの場合だけUnityを開始する。
         html = html.replace(/<body\s+onload=["']game\(\)["']>/i, '<body>');
-        html = html.replace('</head>', '<script src="/pop/runtime-shim.js"></script>\n<script src="/pop/register-sw.js"></script>\n</head>');
+        html = html.replace('</head>', '<script src="/runtime-shim.js"></script>\n<script src="/register-sw.js"></script>\n</head>');
         html = html.replace('</body>', `
 <script>
 window.__sushidaProxyReady.then(function () {
@@ -160,7 +160,7 @@ window.__sushidaProxyReady.then(function () {
     window.__installSushidaUnityRuntimePatch();
     window.gameInstance = UnityLoader.instantiate(
       'gameContainer',
-      '/pop/files/v1_3/Web.json',
+      '/files/v1_3/Web.json',
       { onProgress: UnityProgress }
     );
     var canvas = document.querySelector('#gameContainer canvas');
@@ -185,30 +185,24 @@ window.__sushidaProxyReady.then(function () {
   upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('HTML timeout')));
   upstreamReq.on('error', error => {
     console.error('[html]', error.message);
-    if (!res.headersSent) res.status(502).type('text/plain').send('sushida.net connection failed');
+    if (!res.headersSent) res.status(502).type('text/plain').send('keyx0.net/pop connection failed');
   });
   upstreamReq.end();
 }
 
-app.get('/', (_req, res) => res.redirect(302, BASE_PATH + '/'));
-app.get([BASE_PATH, BASE_PATH + '/', BASE_PATH + '/play.html'], fetchHtml);
+app.get(['/', '/play.html'], fetchHtml);
 
 // SWがまだ制御していない初回ページの補助。通常はSWが先に傍受する。
 app.use((req, res, next) => {
-  if (req.path.startsWith(BASE_PATH + '/_transport/') || req.path === BASE_PATH + '/sw.js' || req.path === BASE_PATH + '/register-sw.js' || req.path === BASE_PATH + '/runtime-shim.js') {
+  if (req.path.startsWith('/_transport/') || req.path === '/sw.js' || req.path === '/register-sw.js' || req.path === '/runtime-shim.js') {
     next();
     return;
   }
-  if (!req.path.startsWith(BASE_PATH + '/')) {
-    res.status(404).type('text/plain').send('Not found');
-    return;
-  }
-  const upstreamPath = req.originalUrl.slice(BASE_PATH.length) || '/';
-  res.redirect(307, BASE_PATH + '/_transport' + upstreamPath);
+  res.redirect(307, '/_transport' + req.originalUrl);
 });
 
 const server = app.listen(PORT, () => {
-  console.log(`Sushida SW proxy listening on port ${PORT}`);
+  console.log(`keyx0.net/pop SW proxy listening on port ${PORT}`);
 });
 
 server.setTimeout(180000);

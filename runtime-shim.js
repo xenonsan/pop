@@ -1,8 +1,8 @@
 'use strict';
 
 (function () {
-  const ORIGINAL_URL = 'https://sushida.net/play.html';
-  const ORIGINAL_ORIGIN = 'https://sushida.net';
+  const ORIGINAL_URL = 'https://keyx0.net/pop/play.html';
+  const ORIGINAL_ORIGIN = 'https://keyx0.net';
 
   // Unity 2017の生成済みframeworkコードが参照するURLを、元サイトとして扱わせる。
   function patchFrameworkSource(source) {
@@ -44,7 +44,7 @@
   for (const [key, value] of [
     ['URL', ORIGINAL_URL],
     ['documentURI', ORIGINAL_URL],
-    ['referrer', ORIGINAL_ORIGIN + '/']
+    ['referrer', ORIGINAL_ORIGIN + '/pop/']
   ]) {
     try {
       Object.defineProperty(document, key, {
